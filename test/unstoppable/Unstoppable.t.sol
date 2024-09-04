@@ -2,10 +2,10 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {UnstoppableVault, Owned} from "../../src/unstoppable/UnstoppableVault.sol";
-import {UnstoppableMonitor} from "../../src/unstoppable/UnstoppableMonitor.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+import { UnstoppableVault, Owned } from "../../src/unstoppable/UnstoppableVault.sol";
+import { UnstoppableMonitor } from "../../src/unstoppable/UnstoppableMonitor.sol";
 
 contract UnstoppableChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -33,7 +33,11 @@ contract UnstoppableChallenge is Test {
         startHoax(deployer);
         // Deploy token and vault
         token = new DamnValuableToken();
-        vault = new UnstoppableVault({_token: token, _owner: deployer, _feeRecipient: deployer});
+        vault = new UnstoppableVault({
+            _token: token,
+            _owner: deployer,
+            _feeRecipient: deployer
+        });
 
         // Deposit tokens to vault
         token.approve(address(vault), TOKENS_IN_VAULT);
@@ -94,7 +98,7 @@ contract UnstoppableChallenge is Test {
     function test_unstoppable() public checkSolvedByPlayer {
         // Directly transfer instead of `Deposit`
         // Make share unchanged and make asset changed
-        // Finally, share is not equal to asset and all flashload txs will revert 
+        // Finally, share is not equal to asset and all flashload txs will revert
         token.transfer(address(vault), INITIAL_PLAYER_TOKEN_BALANCE);
     }
 

