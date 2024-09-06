@@ -4,7 +4,6 @@ pragma solidity =0.8.25;
 
 import { Test, console } from "forge-std/Test.sol";
 import { Safe } from "@safe-global/safe-smart-account/contracts/Safe.sol";
-import { Enum } from "@safe-global/safe-smart-account/contracts/common/Enum.sol";
 import { SafeProxyFactory } from "@safe-global/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
 import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
 import { WalletRegistry } from "../../src/backdoor/WalletRegistry.sol";
